@@ -1,0 +1,274 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider          = "mysql"
+  url               = env("DATABASE_URL")
+  shadowDatabaseUrl = env("SHADOW_DATABASE_URL")
+}
+
+enum UserRole {
+  USER
+  ADMIN
+}
+
+enum SalonVisibility {
+  PUBLIC
+  PRIVATE
+}
+
+enum FriendshipStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+}
+
+model User {
+  id           String   @id @default(uuid())
+  email        String   @unique
+  username     String   @unique
+  passwordHash String
+  firstName    String
+  lastName     String
+  bio          String?  @db.Text
+  avatarUrl    String?
+  bannerUrl    String?
+  role         UserRole @default(USER)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  ownedSalons Salon[]       @relation("SalonOwner")
+  memberships SalonMember[]
+  messages    Message[]
+
+  sentFriendRequests     Friendship[] @relation("SentFriendRequests")
+  receivedFriendRequests Friendship[] @relation("ReceivedFriendRequests")
+
+  privateConversationParticipants PrivateConversationParticipant[]
+  privateMessages                 PrivateMessage[]
+
+  sentSalonInvitations     SalonInvitation[] @relation("SentSalonInvitations")
+  receivedSalonInvitations SalonInvitation[] @relation("ReceivedSalonInvitations")
+
+  salonMembershipRequests SalonMembershipRequest[] @relation("SalonMembershipRequests")
+
+  posts    Post[]
+  likes    PostLike[]
+  comments PostComment[]
+
+  @@map("users")
+}
+
+model Salon {
+  id          String          @id @default(uuid())
+  name        String
+  description String?
+  visibility  SalonVisibility @default(PUBLIC)
+  ownerId     String
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+
+  owner       User              @relation("SalonOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  members     SalonMember[]
+  messages    Message[]
+  invitations SalonInvitation[]
+
+  membershipRequests SalonMembershipRequest[]
+
+  @@index([ownerId])
+  @@map("salons")
+}
+
+model SalonMember {
+  id       String   @id @default(uuid())
+  userId   String
+  salonId  String
+  joinedAt DateTime @default(now())
+
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  salon Salon @relation(fields: [salonId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, salonId])
+  @@index([userId])
+  @@index([salonId])
+  @@map("salon_members")
+}
+
+model Message {
+  id             String   @id @default(uuid())
+  content        String   @db.Text
+  attachmentUrl  String?
+  attachmentType String?
+  attachmentName String?
+  attachmentSize Int?
+  authorId       String
+  salonId        String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  author User  @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  salon  Salon @relation(fields: [salonId], references: [id], onDelete: Cascade)
+
+  @@index([authorId])
+  @@index([salonId])
+  @@map("messages")
+}
+
+model Friendship {
+  id         String           @id @default(uuid())
+  senderId   String
+  receiverId String
+  status     FriendshipStatus @default(PENDING)
+  createdAt  DateTime         @default(now())
+  updatedAt  DateTime         @updatedAt
+
+  sender   User @relation("SentFriendRequests", fields: [senderId], references: [id])
+  receiver User @relation("ReceivedFriendRequests", fields: [receiverId], references: [id])
+
+  @@unique([senderId, receiverId])
+}
+
+model PrivateConversation {
+  id        String   @id @default(uuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  participants PrivateConversationParticipant[]
+  messages     PrivateMessage[]
+
+  @@map("private_conversations")
+}
+
+model PrivateConversationParticipant {
+  id             String @id @default(uuid())
+  conversationId String
+  userId         String
+
+  conversation PrivateConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  user         User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([conversationId, userId])
+  @@index([conversationId])
+  @@index([userId])
+  @@map("private_conversation_participants")
+}
+
+model PrivateMessage {
+  id             String   @id @default(uuid())
+  content        String?  @db.Text
+  gifUrl         String?
+  attachmentUrl  String?
+  attachmentType String?
+  attachmentName String?
+  attachmentSize Int?
+  conversationId String
+  authorId       String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  conversation PrivateConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  author       User                @relation(fields: [authorId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId])
+  @@index([authorId])
+  @@map("private_messages")
+}
+
+enum SalonInvitationStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+}
+
+enum SalonMembershipRequestStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+}
+
+model SalonInvitation {
+  id         String                @id @default(uuid())
+  salonId    String
+  senderId   String
+  receiverId String
+  status     SalonInvitationStatus @default(PENDING)
+  createdAt  DateTime              @default(now())
+  updatedAt  DateTime              @updatedAt
+
+  salon    Salon @relation(fields: [salonId], references: [id], onDelete: Cascade)
+  sender   User  @relation("SentSalonInvitations", fields: [senderId], references: [id], onDelete: Cascade)
+  receiver User  @relation("ReceivedSalonInvitations", fields: [receiverId], references: [id], onDelete: Cascade)
+
+  @@unique([salonId, receiverId])
+  @@index([salonId])
+  @@index([senderId])
+  @@index([receiverId])
+  @@map("salon_invitations")
+}
+
+model SalonMembershipRequest {
+  id          String                       @id @default(uuid())
+  salonId     String
+  requesterId String
+  status      SalonMembershipRequestStatus @default(PENDING)
+  createdAt   DateTime                     @default(now())
+  updatedAt   DateTime                     @updatedAt
+
+  salon     Salon @relation(fields: [salonId], references: [id], onDelete: Cascade)
+  requester User  @relation("SalonMembershipRequests", fields: [requesterId], references: [id], onDelete: Cascade)
+
+  @@unique([salonId, requesterId])
+  @@index([salonId])
+  @@index([requesterId])
+  @@map("salon_membership_requests")
+}
+
+model Post {
+  id        String   @id @default(uuid())
+  content   String   @db.Text
+  mediaUrl  String?
+  mediaType String?
+  authorId  String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  author   User          @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  likes    PostLike[]
+  comments PostComment[]
+
+  @@index([authorId])
+  @@map("posts")
+}
+
+model PostLike {
+  id        String   @id @default(uuid())
+  postId    String
+  userId    String
+  createdAt DateTime @default(now())
+
+  post Post @relation(fields: [postId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([postId, userId])
+  @@index([postId])
+  @@index([userId])
+  @@map("post_likes")
+}
+
+model PostComment {
+  id        String   @id @default(uuid())
+  content   String?  @db.Text
+  postId    String
+  authorId  String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  gifUrl    String?
+
+  post   Post @relation(fields: [postId], references: [id], onDelete: Cascade)
+  author User @relation(fields: [authorId], references: [id], onDelete: Cascade)
+
+  @@index([postId])
+  @@index([authorId])
+  @@map("post_comments")
+}

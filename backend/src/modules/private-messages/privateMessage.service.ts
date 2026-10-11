@@ -1,0 +1,372 @@
+import { prisma } from "../../lib/prisma";
+import type {
+    CreatePrivateConversationInput,
+    CreatePrivateMessageInput,
+} from "./privateMessage.schema";
+
+type CreatePrivateMessageData = CreatePrivateMessageInput & {
+    attachmentUrl?: string | null;
+    attachmentType?: string | null;
+    attachmentName?: string | null;
+    attachmentSize?: number | null;
+};
+
+async function areFriends(userId: string, friendId: string) {
+    const friendship = await prisma.friendship.findFirst({
+        where: {
+            status: "ACCEPTED",
+            OR: [
+                {
+                    senderId: userId,
+                    receiverId: friendId,
+                },
+                {
+                    senderId: friendId,
+                    receiverId: userId,
+                },
+            ],
+        },
+    });
+
+    return Boolean(friendship);
+}
+
+async function isConversationParticipant(conversationId: string, userId: string) {
+    const participant = await prisma.privateConversationParticipant.findUnique({
+        where: {
+            conversationId_userId: {
+                conversationId,
+                userId,
+            },
+        },
+    });
+
+    return Boolean(participant);
+}
+
+export async function getPrivateConversations(userId: string) {
+    return prisma.privateConversation.findMany({
+        where: {
+            participants: {
+                some: {
+                    userId,
+                },
+            },
+        },
+        include: {
+            participants: {
+                include: {
+                    user: {
+                        select: {
+                            id: true,
+                            username: true,
+                            firstName: true,
+                            lastName: true,
+                            email: true,
+                            avatarUrl: true,
+                        },
+                    },
+                },
+            },
+            messages: {
+                take: 1,
+                orderBy: {
+                    createdAt: "desc",
+                },
+                include: {
+                    author: {
+                        select: {
+                            id: true,
+                            username: true,
+                            firstName: true,
+                            lastName: true,
+                            avatarUrl: true,
+                        },
+                    },
+                },
+            },
+        },
+        orderBy: {
+            updatedAt: "desc",
+        },
+    });
+}
+
+export async function createPrivateConversation(
+    userId: string,
+    data: CreatePrivateConversationInput
+) {
+    if (userId === data.friendId) {
+        throw new Error("Vous ne pouvez pas créer une conversation avec vous-même");
+    }
+
+    const friend = await prisma.user.findUnique({
+        where: {
+            id: data.friendId,
+        },
+    });
+
+    if (!friend) {
+        throw new Error("Utilisateur introuvable");
+    }
+
+    const isFriend = await areFriends(userId, data.friendId);
+
+    if (!isFriend) {
+        throw new Error("Vous devez être amis pour envoyer un message privé");
+    }
+
+    const existingConversation = await prisma.privateConversation.findFirst({
+        where: {
+            AND: [
+                {
+                    participants: {
+                        some: {
+                            userId,
+                        },
+                    },
+                },
+                {
+                    participants: {
+                        some: {
+                            userId: data.friendId,
+                        },
+                    },
+                },
+            ],
+        },
+        include: {
+            participants: {
+                include: {
+                    user: {
+                        select: {
+                            id: true,
+                            username: true,
+                            firstName: true,
+                            lastName: true,
+                            email: true,
+                            avatarUrl: true,
+                        },
+                    },
+                },
+            },
+            messages: {
+                take: 1,
+                orderBy: {
+                    createdAt: "desc",
+                },
+                include: {
+                    author: {
+                        select: {
+                            id: true,
+                            username: true,
+                            firstName: true,
+                            lastName: true,
+                            avatarUrl: true,
+                        },
+                    },
+                },
+            },
+        },
+    });
+
+    if (existingConversation) {
+        return existingConversation;
+    }
+
+    return prisma.privateConversation.create({
+        data: {
+            participants: {
+                create: [
+                    {
+                        userId,
+                    },
+                    {
+                        userId: data.friendId,
+                    },
+                ],
+            },
+        },
+        include: {
+            participants: {
+                include: {
+                    user: {
+                        select: {
+                            id: true,
+                            username: true,
+                            firstName: true,
+                            lastName: true,
+                            email: true,
+                            avatarUrl: true,
+                        },
+                    },
+                },
+            },
+            messages: {
+                take: 1,
+                orderBy: {
+                    createdAt: "desc",
+                },
+                include: {
+                    author: {
+                        select: {
+                            id: true,
+                            username: true,
+                            firstName: true,
+                            lastName: true,
+                            avatarUrl: true,
+                        },
+                    },
+                },
+            },
+        },
+    });
+}
+
+export async function getPrivateMessages(
+    conversationId: string,
+    userId: string
+) {
+    const canAccess = await isConversationParticipant(conversationId, userId);
+
+    if (!canAccess) {
+        throw new Error("Vous n'êtes pas autorisé à accéder à cette conversation");
+    }
+
+    return prisma.privateMessage.findMany({
+        where: {
+            conversationId,
+        },
+        include: {
+            author: {
+                select: {
+                    id: true,
+                    username: true,
+                    firstName: true,
+                    lastName: true,
+                    avatarUrl: true,
+                },
+            },
+        },
+        orderBy: {
+            createdAt: "asc",
+        },
+    });
+}
+
+export async function createPrivateMessage(
+    conversationId: string,
+    userId: string,
+    data: CreatePrivateMessageData
+) {
+    const canAccess = await isConversationParticipant(conversationId, userId);
+
+    if (!canAccess) {
+        throw new Error("Vous n'êtes pas autorisé à écrire dans cette conversation");
+    }
+
+    if (!data.content?.trim() && !data.gifUrl && !data.attachmentUrl) {
+        throw new Error("Le message doit contenir du texte, un GIF ou un fichier");
+    }
+
+    const message = await prisma.privateMessage.create({
+        data: {
+            content: data.content?.trim() || null,
+            gifUrl: data.gifUrl || null,
+            attachmentUrl: data.attachmentUrl ?? null,
+            attachmentType: data.attachmentType ?? null,
+            attachmentName: data.attachmentName ?? null,
+            attachmentSize: data.attachmentSize ?? null,
+            conversationId,
+            authorId: userId,
+        },
+        include: {
+            author: {
+                select: {
+                    id: true,
+                    username: true,
+                    firstName: true,
+                    lastName: true,
+                    avatarUrl: true,
+                },
+            },
+        },
+    });
+
+    await prisma.privateConversation.update({
+        where: {
+            id: conversationId,
+        },
+        data: {
+            updatedAt: new Date(),
+        },
+    });
+
+    return message;
+}
+
+export async function deletePrivateMessage(messageId: string, userId: string) {
+    const message = await prisma.privateMessage.findUnique({
+        where: {
+            id: messageId,
+        },
+    });
+
+    if (!message) {
+        throw new Error("Message privé introuvable");
+    }
+
+    if (message.authorId !== userId) {
+        throw new Error("Vous n'êtes pas autorisé à supprimer ce message");
+    }
+
+    await prisma.privateMessage.delete({
+        where: {
+            id: messageId,
+        },
+    });
+
+    return {
+        message: "Message privé supprimé avec succès",
+    };
+}
+
+export async function updatePrivateMessage(
+    messageId: string,
+    userId: string,
+    content: string
+) {
+    const message = await prisma.privateMessage.findUnique({
+        where: { id: messageId },
+    });
+
+    if (!message) {
+        throw new Error("Message introuvable");
+    }
+
+    if (message.authorId !== userId) {
+        throw new Error("Non autorisé");
+    }
+
+    if (!content.trim()) {
+        throw new Error("Le message ne peut pas être vide");
+    }
+
+    return prisma.privateMessage.update({
+        where: { id: messageId },
+        data: {
+            content: content.trim(),
+        },
+        include: {
+            author: {
+                select: {
+                    id: true,
+                    username: true,
+                    firstName: true,
+                    lastName: true,
+                    avatarUrl: true,
+                },
+            },
+        },
+    });
+}

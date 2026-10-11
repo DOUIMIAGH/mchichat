@@ -1,0 +1,38 @@
+import { Router } from "express";
+import { authRouter } from "../modules/auth/auth.routes";
+import { salonRouter } from "../modules/salons/salon.routes";
+import { messageRouter } from "../modules/messages/message.routes";
+import { giphyRouter } from "../modules/giphy/giphy.routes";
+import { friendRouter } from "../modules/friends/friend.routes";
+import { privateMessageRouter } from "../modules/private-messages/privateMessage.routes";
+import { salonInvitationRouter } from "../modules/salon-invitations/salonInvitation.routes";
+import { weatherRouter } from "../modules/weather/weather.routes";
+import { postRouter } from "../modules/posts/post.routes";
+import { profileRouter } from "../modules/profiles/profile.routes";
+import { newsRouter } from "../modules/news/news.routes";
+import {privateConversationRouter} from "../modules/private-messages/privateConversation.routes";
+import { adminRouter } from "../modules/admin/admin.routes";
+
+const router = Router();
+
+router.get("/health", (_req, res) => {
+    res.status(200).json({
+        message: "Mchichat API is running",
+    });
+});
+
+router.use("/auth", authRouter);
+router.use("/salons", salonRouter);
+router.use("/messages", messageRouter);
+router.use("/giphy", giphyRouter);
+router.use("/friends", friendRouter);
+router.use("/private-conversations", privateConversationRouter);
+router.use("/private-messages", privateMessageRouter);
+router.use("/", salonInvitationRouter);
+router.use("/weather", weatherRouter);
+router.use("/posts", postRouter);
+router.use("/profiles", profileRouter);
+router.use("/news", newsRouter);
+router.use(adminRouter);
+
+export { router };

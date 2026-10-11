@@ -1,0 +1,153 @@
+import { prisma } from "../../lib/prisma";
+
+type CreateMessageData = {
+    salonId: string;
+    authorId: string;
+    content?: string | null;
+    attachmentUrl?: string | null;
+    attachmentType?: string | null;
+    attachmentName?: string | null;
+    attachmentSize?: number | null;
+};
+
+export async function getMessagesBySalon(salonId: string, userId: string) {
+    await canAccessSalon(salonId, userId);
+
+    return prisma.message.findMany({
+        where: {
+            salonId,
+        },
+        orderBy: {
+            createdAt: "asc",
+        },
+        include: {
+            author: {
+                select: {
+                    id: true,
+                    username: true,
+                    email: true,
+                    firstName: true,
+                    lastName: true,
+                    avatarUrl: true,
+                },
+            },
+        },
+    });
+}
+
+export async function createMessage(data: CreateMessageData) {
+    await canAccessSalon(data.salonId, data.authorId);
+
+    if (!data.content?.trim() && !data.attachmentUrl) {
+        throw new Error("Le message doit contenir du texte ou un fichier");
+    }
+
+    return prisma.message.create({
+        data: {
+            salonId: data.salonId,
+            authorId: data.authorId,
+            content: data.content?.trim() || "",
+            attachmentUrl: data.attachmentUrl ?? null,
+            attachmentType: data.attachmentType ?? null,
+            attachmentName: data.attachmentName ?? null,
+            attachmentSize: data.attachmentSize ?? null,
+        },
+        include: {
+            author: {
+                select: {
+                    id: true,
+                    username: true,
+                    email: true,
+                    firstName: true,
+                    lastName: true,
+                    avatarUrl: true,
+                },
+            },
+        },
+    });
+}
+
+export async function updateMessage(
+    messageId: string,
+    userId: string,
+    content: string
+) {
+    const message = await prisma.message.findUnique({
+        where: { id: messageId },
+    });
+
+    if (!message) {
+        throw new Error("Message introuvable");
+    }
+
+    if (message.authorId !== userId) {
+        throw new Error("Non autorisé");
+    }
+
+    if (!content.trim()) {
+        throw new Error("Le message ne peut pas être vide");
+    }
+
+    return prisma.message.update({
+        where: { id: messageId },
+        data: {
+            content: content.trim(),
+        },
+        include: {
+            author: {
+                select: {
+                    id: true,
+                    username: true,
+                    email: true,
+                    firstName: true,
+                    lastName: true,
+                    avatarUrl: true,
+                },
+            },
+        },
+    });
+}
+
+export async function deleteMessage(messageId: string, userId: string) {
+    const message = await prisma.message.findUnique({
+        where: { id: messageId },
+    });
+
+    if (!message) {
+        throw new Error("Message introuvable");
+    }
+
+    if (message.authorId !== userId) {
+        throw new Error("Non autorisé");
+    }
+
+    await prisma.message.delete({
+        where: { id: messageId },
+    });
+
+    return {
+        message: "Message supprimé",
+    };
+}
+
+async function canAccessSalon(salonId: string, userId: string) {
+    const salon = await prisma.salon.findUnique({
+        where: { id: salonId },
+        include: {
+            members: true,
+        },
+    });
+
+    if (!salon) {
+        throw new Error("Salon introuvable");
+    }
+
+    const isOwner = salon.ownerId === userId;
+    const isMember = salon.members.some((member) => member.userId === userId);
+
+    if (salon.visibility === "PRIVATE" && !isOwner && !isMember) {
+        throw new Error("Accès interdit à ce salon privé");
+    }
+
+    return salon;
+}
